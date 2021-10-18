@@ -1,3 +1,4 @@
+# Add Identifier too our dataset from API -----
 library(here)
 library(tidyverse)
 library(httr)
@@ -5,21 +6,16 @@ library(jsonlite)
 library(glue)
 
 # Import Data ---------
-clean_names <- c(
-  "id", "location", "district", "state", "country",
-  "latitude", "longitude", "accuracy", "observed_date",
-  "family", "species", "url", "comment", "quality", "downloaded_date", "observer"
-)
 data <- readxl::read_xlsx(
-  "inaturalist_export.xlsx",
-  sheet = "heteroptera", col_names = clean_names, skip = 1
+  "data/16-10-2021-raw.xlsx",
+  col_types = "text",
+  sheet = "edited"
 ) %>%
   mutate(
     latitude = as.numeric(latitude),
     longitude = as.numeric(longitude)
   )
 data %>% glimpse()
-
 i <- 1
 ix <- 0
 testoffset <- 0
@@ -38,7 +34,11 @@ while (i < nrow(data) - testoffset) {
   ids <- as.character(result$id)
   ident <- fetch_url$results$identifications
   for (j in 1:length(ids)) {
-    ident_list[[ids[[j]]]] <- tibble(id = ids[[j]], obs_id = paste(ident[[j]]$user$id, collapse = ","), obs_name = paste(ident[[j]]$user$login, collapse = ","))
+    ident_list[[ids[[j]]]] <- tibble(
+      id = ids[[j]],
+      obs_id = paste(ident[[j]]$user$id, collapse = ","),
+      obs_name = paste(ident[[j]]$user$login, collapse = ",")
+    )
   }
   i <- ix
 }
