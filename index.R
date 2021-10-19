@@ -204,7 +204,7 @@ p <- ggplot2::ggplot() +
     ) +
     scale_fill_manual(values = colorBlindBlack8) +
     coord_sf() +
-    labs(x = "", y = "", fill = "Ort (Beobachter)") +
+    labs(x = "", y = "", fill = "Stadt/Gebiet (Beobachter)") +
     theme_void() +
     theme()
 fSaveImages(p, "Places_Map")
@@ -246,3 +246,64 @@ p <- data %>%
     )
 
 fSaveImages(p, "Observations")
+
+# Graz Dataset ----
+
+graz <- data %>%
+    filter(place == "graz") %>%
+    drop_na(iconic_taxon_name)
+
+
+
+p <- graz %>%
+    drop_na(taxon_phylum_name) %>%
+    add_count(place, name = "total") %>%
+    count(total, taxon_phylum_name) %>%
+    mutate(
+        p = n / first(total),
+        taxon_phylum_name = forcats::fct_reorder(taxon_phylum_name, p, .desc = TRUE)
+    ) %>%
+    ggplot(aes(x = taxon_phylum_name, y = p, label = n)) +
+    geom_col() +
+    geom_text(nudge_y = 0.02, check_overlap = TRUE) +
+    scale_y_continuous(
+        breaks = scales::pretty_breaks(),
+        label = scales::label_percent()
+    ) +
+    labs(
+        y = "Beobachtungen Phyla [%]",
+        x = ""
+    ) +
+    theme(
+        panel.grid.major.y = element_line(),
+        axis.text.x = element_text(angle = 20, hjust = 1),
+    )
+
+fSaveImages(p, "Graz_Phylum")
+
+
+## Insekten -----
+p <- graz %>%
+    filter(taxon_class_name == "Insecta") %>%
+    drop_na(taxon_order_name) %>%
+    add_count(taxon_class_name, name = "total") %>%
+    count(total, taxon_order_name) %>%
+    mutate(
+        p = n / total,
+        taxon_order_name = forcats::fct_reorder(taxon_order_name, p, .desc = TRUE)
+    ) %>%
+    ggplot(aes(y = taxon_order_name, x = p, label = n)) +
+    geom_col() +
+    geom_text(nudge_x = 0.01, check_overlap = TRUE) +
+    scale_x_continuous(
+        breaks = scales::pretty_breaks(),
+        labels = scales::label_percent()
+    ) +
+    labs(
+        y = "Insecta - Ordnung", x = "Beobachtungen [%]"
+    ) +
+    theme(
+        panel.grid.major.x = element_line()
+    )
+
+fSaveImages(p, "Graz_Insect_Order", h = 6)
