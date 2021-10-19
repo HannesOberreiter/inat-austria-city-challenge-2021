@@ -43,8 +43,8 @@ while (i < nrow(data) - testoffset) {
   i <- ix
 }
 
-res <- bind_rows(ident_list) %>%
-  mutate(id = as.integer(id)) %>%
-  arrange(id) %>%
-  glimpse()
-res %>% write_excel_csv2(file = glue("{here()}/raw/identifier.csv"))
+res <- bind_rows(ident_list) # %>%
+# mutate(id = as.integer(id)) %>%
+# arrange(id) %>%
+# glimpse()
+res %>% write_excel_csv2(file = glue("{here()}/data/identifier.csv"))
