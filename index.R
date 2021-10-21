@@ -1,94 +1,118 @@
 # Header ----
 library(tidyverse)
 library(here)
+library(glue)
 library(jsonlite)
 library(lubridate)
 library(scales)
 library(rinat)
+library(ggmap)
 library(sf)
 library(geojsonsf)
 
 source("functions/functions.R")
 
 # Obersations Total ----
-g_url <- "https://api.inaturalist.org/v1/observations/histogram?date_field=observed&interval=year"
-a_url <- "https://api.inaturalist.org/v1/observations/histogram?date_field=observed&interval=year&place_id=143465"
-g_fetch_url <- fromJSON(g_url)
-a_fetch_url <- fromJSON(a_url)
-obs_df <- bind_rows(g_fetch_url$results) %>%
-    pivot_longer(everything()) %>%
-    left_join(
-        bind_rows(a_fetch_url$results) %>%
-            pivot_longer(everything()),
-        by = c("name")
-    ) %>%
-    rename(global = value.x, austria = value.y) %>%
-    mutate(
-        date = lubridate::as_date(name),
-        year = lubridate::year(date),
-        year = ifelse(year < 2008, 2008, year)
-    ) %>%
-    group_by(year) %>%
-    summarise(
-        global = sum(global, na.rm = TRUE),
-        austria = sum(austria, na.rm = TRUE)
-    ) %>%
-    ungroup() %>%
-    mutate(
-        global = cumsum(global),
-        austria = cumsum(austria)
-    ) %>%
-    pivot_longer(-year) %>%
-    group_by(name) %>%
-    mutate(
-        name = ifelse(name == "global", "Weltweit", "Österreich"),
-        latest = dplyr::last(value) %>% format(big.mark = ".", decimal.mark = ","),
-        label = glue::glue("{name} - {latest} Beobachtungen")
-    ) %>%
-    glimpse()
 
+if (file.exists("output/obs_df.RDS")) {
+    obs_df <- read_rds("output/obs_df.RDS")
+} else {
+    g_url <- "https://api.inaturalist.org/v1/observations/histogram?date_field=observed&interval=year"
+    a_url <- "https://api.inaturalist.org/v1/observations/histogram?date_field=observed&interval=year&place_id=143465"
+    g_fetch_url <- fromJSON(g_url)
+    a_fetch_url <- fromJSON(a_url)
+    obs_df <- bind_rows(g_fetch_url$results) %>%
+        pivot_longer(everything()) %>%
+        left_join(
+            bind_rows(a_fetch_url$results) %>%
+                pivot_longer(everything()),
+            by = c("name")
+        ) %>%
+        rename(global = value.x, austria = value.y) %>%
+        mutate(
+            date = lubridate::as_date(name),
+            year = lubridate::year(date),
+            year = ifelse(year < 2008, 2008, year)
+        ) %>%
+        group_by(year) %>%
+        summarise(
+            global = sum(global, na.rm = TRUE),
+            austria = sum(austria, na.rm = TRUE)
+        ) %>%
+        ungroup() %>%
+        mutate(
+            global = cumsum(global),
+            austria = cumsum(austria)
+        ) %>%
+        pivot_longer(-year) %>%
+        group_by(name) %>%
+        mutate(
+            name = ifelse(name == "global", "Weltweit", "Österreich"),
+            latest = dplyr::last(value) %>% format(big.mark = ".", decimal.mark = ","),
+            label = glue::glue("{name} - {latest} Beobachtungen")
+        ) %>%
+        glimpse()
+}
 
 p <- fTotalLine(obs_df, "Beobachtungen [#]")
 fSaveImages(p, "Observations_Total")
-
+saveRDS(obs_df, "output/obs_df.RDS")
 # Import Map --------
-austria <- read_sf("map")
-# Transform to WGS84
-austria <- sf::st_transform(austria, crs = 4326)
-austria_states <- austria %>%
-    group_by(BL) %>%
-    summarize(
-        geometry = st_union(geometry)
+if (file.exists("output/austria_states_simplify.RDS")) {
+    austria_states_simplify <- read_rds("output/austria_states_simplify.RDS")
+} else {
+    austria <- read_sf("map")
+    # Transform to WGS84
+    austria <- sf::st_transform(austria, crs = 4326)
+    austria_states <- austria %>%
+        group_by(BL) %>%
+        summarize(
+            geometry = st_union(geometry)
+        )
+    austria_states_simplify <- austria_states %>%
+        st_simplify(dTolerance = 0.002)
+}
+saveRDS(austria_states_simplify, "output/austria_states_simplify.RDS")
+
+if (file.exists("output/map_grid.RDS")) {
+    map_grid <- read_rds("output/map_grid.RDS")
+} else {
+    map_grid <- st_make_grid(
+        austria_states_simplify,
+        cellsize = 0.1
     )
-austria_states_simplify <- austria_states %>%
-    st_simplify(dTolerance = 0.002)
 
-map_grid <- st_make_grid(
-    austria_states_simplify,
-    cellsize = 0.1
-)
+    # https://github.com/r-spatial/sf/issues/243
+    map_grid <- map_grid[austria_states_simplify] %>%
+        st_sf() %>%
+        st_cast() %>%
+        mutate(id_polygon = row_number())
+}
+saveRDS(map_grid, "output/map_grid.RDS")
 
-# https://github.com/r-spatial/sf/issues/243
-map_grid <- map_grid[austria_states_simplify] %>%
-    st_sf() %>%
-    st_cast() %>%
-    mutate(id_polygon = row_number())
 
 # Austria Observations ----
-gbif_data <- readr::read_tsv("data/0031008-210914110416597.csv")
-# Create SF Object
-gbif_sf <- sf::st_as_sf(
-    gbif_data,
-    coords = c("decimalLongitude", "decimalLatitude"),
-    crs = 4326,
-    remove = FALSE
-)
-# Counting Observations inside Polygons
-# gbif_polygon <- map_grid %>%
-# sf::st_join(gbif_sf)
-count <- st_intersects(map_grid, gbif_sf, sparse = FALSE)
-count <- apply(r, 1, sum)
-map_grid$count <- count
+if (file.exists("output/gbif_data.RDS")) {
+    gbif_data <- read_rds("output/gbif_data.RDS")
+} else {
+    gbif_data <- readr::read_tsv("data/0031008-210914110416597.csv")
+    nrow(gbif_data)
+    # Create SF Object
+    gbif_sf <- sf::st_as_sf(
+        gbif_data,
+        coords = c("decimalLongitude", "decimalLatitude"),
+        crs = 4326,
+        remove = FALSE
+    )
+    # Counting Observations inside Polygons
+    # gbif_polygon <- map_grid %>%
+    # sf::st_join(gbif_sf)
+    count <- st_intersects(map_grid, gbif_sf, sparse = FALSE)
+    count <- apply(count, 1, sum)
+    map_grid$count <- count
+}
+
+saveRDS(gbif_data, "output/gbif_data.RDS")
 
 p <- ggplot2::ggplot() +
     geom_sf(
@@ -165,22 +189,27 @@ projects <- projects %>%
         label = glue("{name} ({observer})")
     )
 
-
-polys <- list()
-for (i in seq_len(nrow(projects))) {
-    url <- glue("https://api.inaturalist.org/v1/projects?q={projects[i,]$url}")
-    print(url)
-    fetch_url <- fromJSON(url)
-    id <- fetch_url$results$project_observation_rules[[1]] %>% pull(operand_id)
-    url <- glue("https://api.inaturalist.org/v1/places/{paste(id, collapse = ',')}")
-    print(url)
-    fetch_url <- fromJSON(url)
-    poly <- geojsonsf::geojson_sf(toJSON(fetch_url$results$geometry_geojson), expand_geometries = TRUE)
-    poly$name <- projects[i, ]$name
-    polys[[i]] <- poly
+if (file.exists("output/polys.RDS")) {
+    polys <- read_rds("output/polys.RDS")
+} else {
+    polys <- list()
+    for (i in seq_len(nrow(projects))) {
+        url <- glue("https://api.inaturalist.org/v1/projects?q={projects[i,]$url}")
+        print(url)
+        fetch_url <- fromJSON(url)
+        id <- fetch_url$results$project_observation_rules[[1]] %>% pull(operand_id)
+        url <- glue("https://api.inaturalist.org/v1/places/{paste(id, collapse = ',')}")
+        print(url)
+        fetch_url <- fromJSON(url)
+        poly <- geojsonsf::geojson_sf(toJSON(fetch_url$results$geometry_geojson), expand_geometries = TRUE)
+        poly$name <- projects[i, ]$name
+        polys[[i]] <- poly
+    }
+    polys <- bind_rows(polys)
+    polys <- polys %>% left_join(projects, by = "name")
 }
-polys <- bind_rows(polys)
-polys <- polys %>% left_join(projects, by = "name")
+saveRDS(polys, "output/polys.RDS")
+
 
 # combined <- polys %>%
 #    group_by(name) %>%
@@ -224,7 +253,7 @@ p <- data %>%
     geom_col() +
     geom_text(
         aes(y = total, label = total),
-        nudge_y = 400,
+        nudge_y = 600,
         check_overlap = TRUE
     ) +
     scale_fill_manual(
@@ -252,8 +281,6 @@ fSaveImages(p, "Observations")
 graz <- data %>%
     filter(place == "graz") %>%
     drop_na(iconic_taxon_name)
-
-
 
 p <- graz %>%
     drop_na(taxon_phylum_name) %>%
@@ -307,3 +334,36 @@ p <- graz %>%
     )
 
 fSaveImages(p, "Graz_Insect_Order", h = 6)
+
+## Observation Locations Graz ----
+register_google(key = Sys.getenv("GOOGLEGEOCODE_API_KEY"))
+map_graz <- ggmap::get_map("graz, austria")
+
+graz <- sf::st_as_sf(
+    graz,
+    coords = c("longitude", "latitude"),
+    crs = 4326,
+    remove = FALSE
+) %>%
+    mutate(
+        lon = longitude,
+        lat = latitude
+    )
+
+p <- ggmap(map_graz, extent = "normal") +
+    geom_sf(
+        data = polys %>% filter(name == "Graz"),
+        color = "#D55E00",
+        alpha = 0,
+        inherit.aes = FALSE,
+        size = 1
+    ) +
+    geom_point(
+        data = graz,
+        aes(color = iconic_taxon_name),
+        alpha = 0.5
+    ) +
+    scale_color_viridis_d(option = "plasma") +
+    labs(x = "", y = "", color = "Taxa")
+
+fSaveImages(p, "Graz_Obs_map", h = 6)
