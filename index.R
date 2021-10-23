@@ -160,7 +160,6 @@ data <- readxl::read_xlsx(
     )
 data %>% glimpse()
 
-
 # Place Polygons ----
 projects <- tribble(
     ~name, ~url, ~place,
@@ -264,7 +263,7 @@ p <- data %>%
         labels = scales::label_number_si()
     ) +
     labs(
-        y = "Beobachtungen",
+        y = "Beobachtungen [#]",
         x = "",
         fill = "Bestimmung"
     ) +
@@ -360,10 +359,75 @@ p <- ggmap(map_graz, extent = "normal") +
     ) +
     geom_point(
         data = graz,
-        aes(color = iconic_taxon_name),
-        alpha = 0.5
+        color = "#464343"
     ) +
     scale_color_viridis_d(option = "plasma") +
     labs(x = "", y = "", color = "Taxa")
 
 fSaveImages(p, "Graz_Obs_map", h = 6)
+
+## Observer & Identifier ----
+
+st_geometry(graz) <- NULL # don't need it anymore and just slows down
+
+obs <- graz %>%
+    janitor::tabyl(user_login) %>%
+    arrange(desc(n)) %>%
+    top_n(10) %>%
+    mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
+    glimpse()
+
+ide <- graz %>%
+    separate_rows(identifier_name, sep = ",") %>%
+    filter(user_id != identifier_name) %>%
+    janitor::tabyl(identifier_name) %>%
+    arrange(desc(n)) %>%
+    top_n(10) %>%
+    mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
+    glimpse()
+
+knitr::kable(bind_cols(obs, ide))
+
+## Top Species ----
+
+species_top <- graz %>%
+    drop_na(taxon_species_name) %>%
+    janitor::tabyl(taxon_species_name) %>%
+    top_n(12) %>%
+    mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
+    glimpse()
+
+order_top <- graz %>%
+    drop_na(taxon_species_name) %>%
+    janitor::tabyl(taxon_order_name) %>%
+    top_n(12) %>%
+    mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
+    glimpse()
+
+knitr::kable(bind_cols(order_top, species_top))
+
+
+## Red List -----
+
+species <- read_csv("data/data_species_check_list.csv") %>%
+    rename(scientific_name = speciesname) %>%
+    distinct(scientific_name, .keep_all = TRUE) %>%
+    filter((annex_II_priority != "N" | annex_II != "N" | annex_IV != "N")) %>%
+    right_join(graz, by = c("scientific_name")) %>%
+    drop_na(annex_II) %>%
+    count(scientific_name, common_name, annex_II_priority, annex_II, annex_IV) %>%
+    arrange(scientific_name)
+
+knitr::kable(species %>% arrange(desc(n)), booktabs = TRUE)
+
+birds <- read_csv2("data/birds.csv") %>%
+    rename_with(~"scientific_name", 1) %>%
+    select(scientific_name, `Annex I`) %>%
+    rename(AnnexI = `Annex I`) %>%
+    drop_na(AnnexI) %>%
+    right_join(graz, by = c("scientific_name")) %>%
+    drop_na(AnnexI) %>%
+    count(scientific_name, common_name, AnnexI) %>%
+    arrange(scientific_name)
+
+knitr::kable(birds %>% arrange(desc(n)), booktabs = TRUE)
