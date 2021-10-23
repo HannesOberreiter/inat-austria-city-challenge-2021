@@ -393,6 +393,7 @@ knitr::kable(bind_cols(obs, ide))
 species_top <- graz %>%
     drop_na(taxon_species_name) %>%
     janitor::tabyl(taxon_species_name) %>%
+    arrange(desc(n)) %>%
     top_n(12) %>%
     mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
     glimpse()
@@ -400,6 +401,7 @@ species_top <- graz %>%
 order_top <- graz %>%
     drop_na(taxon_species_name) %>%
     janitor::tabyl(taxon_order_name) %>%
+    arrange(desc(n)) %>%
     top_n(12) %>%
     mutate(percent = format(round(percent * 100, 1), decimal.mark = ",")) %>%
     glimpse()
